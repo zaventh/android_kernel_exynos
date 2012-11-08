@@ -1664,17 +1664,19 @@ static int pl330_submit_req(void *ch_id, struct pl330_req *r)
 		goto xfer_exit;
 	}
 
-	/* Prefer Secure Channel */
-	if (!_manager_ns(thrd))
-		r->cfg->nonsecure = 0;
-	else
-		r->cfg->nonsecure = 1;
 
 	/* Use last settings, if not provided */
-	if (r->cfg)
+	if (r->cfg) {
+		/* Prefer Secure Channel */
+		if (!_manager_ns(thrd))
+			r->cfg->nonsecure = 0;
+		else
+			r->cfg->nonsecure = 1;
+
 		ccr = _prepare_ccr(r->cfg);
-	else
+	} else {
 		ccr = readl(regs + CC(thrd->id));
+	}
 
 	/* If this req doesn't have valid xfer settings */
 	if (!_is_valid(ccr)) {
@@ -2420,7 +2422,7 @@ static void pl330_tasklet(unsigned long data)
 	/* Pick up ripe tomatoes */
 	list_for_each_entry_safe(desc, _dt, &pch->work_list, node)
 		if (desc->status == DONE) {
-			if (pch->cyclic)
+			if (!pch->cyclic)
 				pch->chan.completed_cookie = desc->txd.cookie;
 			else
 				dma_cookie_complete(&desc->txd);
@@ -3054,6 +3056,11 @@ pl330_probe(struct amba_device *adev, const struct amba_id *id)
 		num_chan = max_t(int, pi->pcfg.num_peri, pi->pcfg.num_chan);
 
 	pdmac->peripherals = kzalloc(num_chan * sizeof(*pch), GFP_KERNEL);
+	if (!pdmac->peripherals) {
+		ret = -ENOMEM;
+		dev_err(&adev->dev, "unable to allocate pdmac->peripherals\n");
+		goto probe_err5;
+	}
 
 	for (i = 0; i < num_chan; i++) {
 		pch = &pdmac->peripherals[i];
